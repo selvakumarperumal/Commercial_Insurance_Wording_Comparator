@@ -105,6 +105,7 @@ Error codes:
 
 | Code | Meaning |
 |---|---|
+| `400` | An upload is not a PDF or is empty |
 | `401` | Missing, invalid or expired token |
 | `404` | The job doesn't exist or belongs to another user |
 | `409` | The email is already registered |
