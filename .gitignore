@@ -1,0 +1,35 @@
+# Secrets: real values live in .envrc (see .envrc.example)
+.envrc
+.env
+.env.*
+!.envrc.example
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+
+# Frontend (src/frontend)
+node_modules/
+dist/
+.vite/
+*.log
+
+# Local notes and design docs
+docs/
+
+# Local app output
+uploads/
+report.json
+report.md
+tmp/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store

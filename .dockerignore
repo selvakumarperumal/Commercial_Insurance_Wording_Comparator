@@ -1,0 +1,14 @@
+# Secrets: never send these to the Docker build
+.envrc
+.env
+.env.*
+
+# Local environments, caches and VCS
+.venv
+**/__pycache__
+**/*.pyc
+.git
+
+# Notebooks, scratch output and sample documents
+tmp
+*.pdf

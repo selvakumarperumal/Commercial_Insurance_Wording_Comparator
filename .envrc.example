@@ -1,0 +1,8 @@
+# Copy to .envrc (cp .envrc.example .envrc), fill in the values, then run `direnv allow` or `source .envrc`.
+# .envrc holds real secrets and is git-ignored; never commit it.
+
+# Gemini API key, used by the worker for embeddings and the comparison LLM.
+export GEMINI_API_KEY=
+
+# Signs login tokens (JWT). At least 32 random characters; create one with: openssl rand -hex 32
+export JWT_SECRET=

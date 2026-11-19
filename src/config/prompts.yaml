@@ -1,0 +1,168 @@
+system_prompts:
+  clause_outline_codegen_prompt: |
+    Write Python code that finds where each clause starts in an insurance policy wording.
+
+    Sandbox rules:
+    - Only the `re` module is available (`import re` is allowed; import nothing else).
+    - No files, no network, no print().
+    - A variable `text` already holds the text of the entire policy, taken from a PDF text layer or by OCR.
+      Lines may be wrapped mid-sentence, and OCR text may contain markdown such as "#", "**" or tables.
+
+    Code structure:
+    - Define a function `extract_outline(text: str) -> list[int]` that does all the work.
+      It must use only its `text` argument, not any global variable.
+    - Define any regex patterns at module level, above the function.
+    - The last line of the code must be exactly: extract_outline(text)
+
+    Task:
+    Split `text` with text.splitlines(). Return the 0-based indices, ascending and without duplicates, of
+    the lines that start a clause: the title, section, heading or subheading line that the text below it
+    belongs to, up to the next such line.
+
+    Policies use very different heading styles, and one policy often mixes several. Learn this policy's
+    styles from the sample pages. Styles you may meet include:
+    - Decimal numbers: "1.", "3.1", "3.1.2", "4.2.", "7)".
+    - Roman numerals or letters: "IV.", "ii)", "B.", "(c)" when they title a provision.
+    - Keywords: "Section 2", "SECTION II - EXCLUSIONS", "Part A", "Article 5", "Clause 7:", "Endorsement No. 3".
+    - Markdown or emphasis left by OCR: "## Exclusions", "**General Conditions**".
+    - No number at all: a short line in ALL CAPS or in Title Case that stands on its own, with body text
+      after it, e.g. "GENERAL EXCLUSIONS", "Claims Procedure", "What is not covered".
+    Keep a numbered line even when body text follows on it, e.g. "3.4 Claim means any written demand".
+    In a definitions list, keep each defined term's line if the policy numbers or titles the entries.
+
+    Do not keep:
+    - Body text and its wrapped continuation lines. A line that continues the sentence above it (the line
+      above has no closing punctuation, or this line starts in lowercase) is not a heading, even if it
+      starts with a number such as "12 months" or "30 days".
+    - Items of a list inside a provision, e.g. "(a) fire;", "(ii) theft, or", "a) the Insured", unless the
+      policy uses that marker as a heading style with its own title.
+    - Lines that introduce a list, e.g. "The Insurer will not pay for:", "LOSS SHALL NOT INCLUDE:".
+    - Table rows and cells, e.g. "| Sum Insured | INR 10,00,000 |" or HTML table tags.
+    - Running page headers and footers, page numbers such as "Page 3 of 20", phone and fax numbers,
+      addresses, web and email addresses, dates and reference codes such as "UIN: IRDAN123RP0001V01".
+    - Blank lines.
+
+    Generalize:
+    The sample is only some pages. The rest of the policy uses the same styles with other words, deeper
+    numbering, more sections and longer titles, and may add a style the sample does not show. Write
+    patterns for each style, not for the words of the sample, and prefer a few small, named patterns over
+    one large pattern. When a line is ambiguous, decide from its neighbours, e.g. a heading usually
+    follows a blank line or the end of a sentence, and is followed by body text.
+    If the policy has no headings at all, return an empty list.
+
+    Reply with only the code in a single ```python block, with no explanation.
+
+    <sample>
+    {sample}
+    </sample>
+
+  subject_taxonomy_prompt: |
+    Below are the outlines of two insurance policy wordings, Policy A and Policy B: their title, heading
+    and subheading lines, in order. Headings may be numbered in any style ("3.1", "IV.", "Section 2") or
+    not numbered at all. When a policy has no headings, its outline lists the opening line of each
+    passage instead.
+
+    Task:
+    Using only these outlines, list the insurance subjects of the two policies, so that both policies
+    can be compared subject by subject. A subject is a distinct topic the policies' clauses can be
+    sorted into. It can be anything either policy deals with, for example:
+    - what is insured (buildings, stock, machinery, money)
+    - a peril or cause of loss (fire, flood, theft, earthquake)
+    - a cost or loss type (debris removal, loss of rent, professional fees)
+    - a limit, sum insured, deductible or excess
+    - a condition or obligation (claims notice, reasonable precautions, cancellation)
+
+    Rules for choosing subjects:
+    - Name each subject by what it is about, not by where it sits in the policy. Do not group headings
+      by section (cover, extension, exclusion, condition).
+    - Do not use the words "coverage", "cover", "exclusion", "excluded", "extension" or "condition"
+      in keys or descriptions. Whether the policy covers or excludes a subject does not matter.
+    - Group closely related headings into one subject, e.g. "Storm", "Tempest" and "Flood" become one
+      weather subject. Keep topics apart when they would be judged separately, e.g. theft and fire.
+    - Every substantive heading in either policy should fall under some subject.
+    - When both policies deal with the same topic under different headings, e.g. "Theft and Burglary"
+      and "Forcible Entry", use one shared subject, not one per policy.
+    - Ignore purely structural lines: the policy title, section labels such as "Section A" or "Part II",
+      and container headings such as "Definitions", "General Conditions" or "Schedule". The headings
+      underneath them still count.
+    - Use only what the outlines contain. Do not add subjects from general insurance knowledge, and do
+      not add a catch-all subject such as "other" or "miscellaneous".
+    - Prefer standard insurance terms over either policy's own wording, so that each subject matches
+      the relevant clauses of both policies.
+
+    For each subject give:
+    - key: a unique lowercase snake_case identifier of 1-4 words, e.g. "debris_removal"
+    - description: a plain phrase of 3-12 words saying what falls under the subject.
+      Not a full sentence and not a copied heading.
+
+    Output:
+    Reply with only a JSON object, no explanation and no code fence, in this shape:
+    {"subjects": [{"key": "...", "description": "..."}]}
+    List the subjects in the order they first appear, going through Policy A's outline first and then
+    Policy B's.
+
+    <policy_a_outline>
+    {outline_a}
+    </policy_a_outline>
+
+    <policy_b_outline>
+    {outline_b}
+    </policy_b_outline>
+
+  subject_comparison_prompt: |
+    You are comparing two insurance policy wordings, Policy A and Policy B, on one subject.
+    Judge which policy is more favourable to the insured (the policyholder), not to the insurer.
+
+    <subject>
+    key: {subject_key}
+    description: {subject_description}
+    </subject>
+
+    <other_subjects>
+    {other_subjects}
+    </other_subjects>
+
+    <policy_a>
+    {policy_a_text}
+    </policy_a>
+
+    <policy_b>
+    {policy_b_text}
+    </policy_b>
+
+    Each policy block holds the passages retrieved from that policy for this subject, each under its page
+    location in square brackets. A passage is a run of the policy text and may start or end mid-sentence
+    or mid-clause. Some passages may be only loosely related, and one passage may also deal with other
+    subjects. Judge only what the text says about this subject: each subject listed in
+    <other_subjects> is compared separately, so ignore differences that belong to one of them (for
+    example, if terrorism is listed there, a terrorism limit does not count for a fire subject). A block
+    may be empty, or hold no text about the subject, if the policy says nothing about it.
+
+    Choose exactly one verdict:
+    - "equivalent": both policies treat the subject the same in substance, even if the wording differs.
+    - "A_more_favourable": both address the subject, and Policy A leaves the insured better off.
+    - "B_more_favourable": both address the subject, and Policy B leaves the insured better off.
+    - "only_in_A": only Policy A addresses the subject; Policy B's text says nothing about it.
+    - "only_in_B": only Policy B addresses the subject; Policy A's text says nothing about it.
+
+    How to judge:
+    - A policy "addresses" a subject if it says anything about it, including excluding it or limiting it.
+      If A covers something and B explicitly excludes it, that is "A_more_favourable", not "only_in_A".
+    - A policy is more favourable to the insured when, for this subject, it has for example:
+      - broader scope: more property, perils, losses or situations included
+      - higher limits or sums insured, or no sub-limit
+      - lower deductibles or excesses, shorter waiting periods
+      - fewer or narrower carve-outs and restrictions
+      - lighter conditions: longer notice periods, fewer duties, fewer grounds to refuse a claim
+      - broader definitions of key terms
+    - Wording differences that do not change the outcome of a claim count as "equivalent".
+    - If each policy is better on a different point, decide which difference would matter more to the
+      amount and likelihood of a claim being paid, and choose that side. Explain the trade-off in the reason.
+    - Use only the text given. Do not assume terms that are not written, and do not use general knowledge
+      of what such policies usually contain.
+
+    Output:
+    Reply with only a JSON object, no explanation and no code fence, in this shape:
+    {"subject": "<subject key>", "reason": "<1-3 sentences naming the specific differences that decide it>", "verdict": "<one verdict>"}
+    Write the reason before deciding the verdict.
+    

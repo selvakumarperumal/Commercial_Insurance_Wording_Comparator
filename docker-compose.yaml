@@ -1,0 +1,148 @@
+services:
+  postgres:
+    image: postgres:18
+    container_name: ciwc-postgres
+    environment:
+      POSTGRES_USER: ciwc_user
+      POSTGRES_PASSWORD: ciwc_password
+      POSTGRES_DB: ciwc_db
+    ports:
+      - "5432:5432"
+    volumes:
+      # Postgres 18+ keeps its data under /var/lib/postgresql/<major>/, so mount the parent directory.
+      - ciwc_postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ciwc_user -d ciwc_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:8
+    container_name: ciwc-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ciwc-api:
+    build:
+      context: .
+      dockerfile: src/commercial_insurance_wording_comparator/Dockerfile
+    container_name: ciwc-api
+    environment:
+      # Inside compose, services reach each other by service name, not localhost.
+      DATABASE_URL: postgresql+psycopg://ciwc_user:ciwc_password@postgres:5432/ciwc_db
+      REDIS_URL: redis://redis:6379/0
+      UPLOAD_DIR: /data/uploads
+      # Signs the login tokens. Passed through from the host shell (.envrc), never written here.
+      JWT_SECRET: ${JWT_SECRET:-}
+      # Dev: don't write root-owned __pycache__ folders into the mounted source on the host.
+      PYTHONDONTWRITEBYTECODE: "1"
+    # Dev: mount the code so edits on the host show up in the container, and let uvicorn reload on save.
+    volumes:
+      - ./src/commercial_insurance_wording_comparator:/app/commercial_insurance_wording_comparator
+      # Uploaded PDFs; the job message carries their paths, so the worker mounts the same volume.
+      - ciwc_uploads:/data/uploads
+    command:
+      - uvicorn
+      - commercial_insurance_wording_comparator.main:app
+      - --host=0.0.0.0
+      - --port=8000
+      - --reload
+      - --reload-dir=/app/commercial_insurance_wording_comparator
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # React app served by nginx, which proxies /api to ciwc-api. Open http://localhost:3000
+  ciwc-frontend:
+    build: ./src/frontend
+    container_name: ciwc-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - ciwc-api
+
+  ciwc-worker:
+    build:
+      context: .
+      dockerfile: src/ciwc_worker/Dockerfile
+    environment:
+      DATABASE_URL: postgresql://ciwc_user:ciwc_password@postgres:5432/ciwc_db
+      REDIS_URL: redis://redis:6379/0
+      OCR_URL: http://ciwc-ocr:8000/v1
+      QDRANT_URL: http://qdrant:6333
+      # Passed through from the host shell (.envrc), never written here.
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - ciwc_uploads:/data/uploads
+    # Scale with: docker compose up --scale ciwc-worker=3 (each container gets its own hostname as WORKER_NAME).
+    # A comparison takes minutes; on stop, give the worker time to finish its job before it is killed.
+    stop_grace_period: 10m
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+      ciwc-ocr:
+        condition: service_healthy
+
+  # Vector DB for clause retrieval: dense (Gemini) + BM25 sparse vectors; BM25 is computed by Qdrant itself.
+  # The image is distroless (no shell or curl), so there is no in-container healthcheck; the worker retries.
+  qdrant:
+    image: qdrant/qdrant:v1.20.2
+    container_name: ciwc-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - ciwc_qdrant_data:/qdrant/storage
+    environment:
+      QDRANT__TELEMETRY_DISABLED: "true"
+
+  # GLM-OCR served by vLLM behind an OpenAI-compatible API (needs an NVIDIA GPU).
+  ciwc-ocr:
+    image: vllm/vllm-openai:latest
+    container_name: ciwc-ocr
+    command:
+      - zai-org/GLM-OCR
+      - --speculative-config.method=mtp
+      - --speculative-config.num_speculative_tokens=1
+      # 8 GB laptop GPU: 0.5 left no room for the KV cache, so use 75% (~6 GB), and a 16k context
+      # (a page image is ~4k tokens).
+      - --gpu-memory-utilization=0.75
+      - --max-model-len=16384
+    volumes:
+      # Download the model once, not on every start.
+      - ciwc_hf_cache:/root/.cache/huggingface
+    ports:
+      - "8001:8000"
+    ipc: host
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      # The first start downloads and loads the model.
+      start_period: 300s
+    # Snap Docker runs the NVIDIA runtime in CDI mode, which rejects deploy.resources GPU requests (--gpus).
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+
+volumes:
+  ciwc_postgres_data:
+  ciwc_hf_cache:
+  ciwc_qdrant_data:
+  ciwc_uploads:
